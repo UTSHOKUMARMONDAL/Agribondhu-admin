@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>কৃষক জরিপ প্রশ্নমালা</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF1E2; --ink:#22331F; --paddy:#28472A; --gold:#B4831A;
+    --gold-soft:#EADFC1; --brick:#9C3B2A; --line:#D9D4BE; --card:#FBFAF4;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Hind Siliguri',sans-serif;line-height:1.6;}
+  header{background:var(--paddy);color:#F3EFDD;padding:2.2rem 1.2rem 2.6rem;text-align:center;position:relative;}
+  header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:14px;
+    background:repeating-linear-gradient(115deg,var(--paddy) 0 18px,var(--paper) 18px 20px);}
+  header h1{font-family:'Tiro Bangla',serif;font-weight:400;font-size:1.9rem;margin:0 0 .4rem;}
+  header p{margin:0;color:#D8CE9E;font-size:.95rem;}
+  main{max-width:680px;margin:2.5rem auto 4rem;padding:0 1.2rem;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1.6rem 1.5rem;margin-bottom:1.4rem;}
+  .meta-row{display:flex;gap:1rem;flex-wrap:wrap;}
+  .meta-row .field{flex:1;min-width:180px;}
+  .section-head{display:flex;align-items:baseline;gap:.6rem;margin:2.2rem 0 1rem;}
+  .section-head .letter{font-family:'Tiro Bangla',serif;font-size:1.5rem;color:var(--gold);border:1px solid var(--gold);
+    width:2rem;height:2rem;display:flex;align-items:center;justify-content:center;border-radius:50%;flex:none;}
+  .section-head h2{font-family:'Tiro Bangla',serif;font-weight:400;font-size:1.25rem;margin:0;color:var(--paddy);}
+  .field{margin-bottom:1.4rem;}
+  .field > label.qlabel{display:block;font-weight:600;margin-bottom:.55rem;font-size:.98rem;}
+  .req{color:var(--brick);margin-left:.15rem;}
+  input[type=text],input[type=date],textarea{
+    width:100%;padding:.6rem .7rem;border:1px solid var(--line);border-radius:3px;background:#fff;
+    font:inherit;color:var(--ink);}
+  select{width:100%;padding:.6rem .7rem;border:1px solid var(--line);border-radius:3px;background:#fff;font:inherit;color:var(--ink);}
+  select:disabled{background:#f1f0e6;color:#9a9a88;cursor:not-allowed;}
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--gold);outline-offset:1px;}
+  .opts{display:flex;flex-wrap:wrap;gap:.5rem;}
+  .opt{border:1px solid var(--line);border-radius:20px;padding:.4rem .95rem;cursor:pointer;background:#fff;
+    font-size:.92rem;user-select:none;transition:.12s;}
+  .opt input{position:absolute;opacity:0;pointer-events:none;}
+  .opt:has(input:checked){background:var(--gold-soft);border-color:var(--gold);color:var(--paddy);font-weight:600;}
+  .other-input{margin-top:.5rem;max-width:320px;}
+  .consent-card{background:var(--gold-soft);border-color:var(--gold);}
+  .consent-card .qlabel{font-weight:500;}
+  #submit-btn{width:100%;padding:.9rem;background:var(--paddy);color:#F3EFDD;border:none;border-radius:3px;
+    font:inherit;font-weight:600;font-size:1.05rem;cursor:pointer;}
+  #submit-btn:disabled{opacity:.55;cursor:not-allowed;}
+  #status{margin-top:1rem;padding:.85rem 1rem;border-radius:3px;font-size:.95rem;display:none;}
+  #status.ok{display:block;background:#E1EBD6;color:var(--paddy);border:1px solid #A9C79A;}
+  #status.err{display:block;background:#F5E1DC;color:var(--brick);border:1px solid #E0B3A6;}
+  .hint{font-size:.85rem;color:#6b6b5a;margin-top:1rem;text-align:center;}
+</style>
+</head>
+<body>
+<header>
+  <h1>ধান পাতার রোগ শনাক্তকরণ মোবাইল অ্যাপ — কৃষক মতামত জরিপ</h1>
+  <p>প্রযোজ্য ঘরে টিক (✓) দিন</p>
+</header>
+<main>
+  <form id="survey-form"></form>
+  <div id="status"></div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="schema.js"></script>
+<script src="bd-geo.js"></script>
+<script>
+const form = document.getElementById("survey-form");
+const statusBox = document.getElementById("status");
+
+function fieldHTML(q){
+  const reqMark = q.required ? '<span class="req">*</span>' : '';
+  const skipAttr = q.skipWhen ? ` data-skip-id="${q.skipWhen.id}" data-skip-value="${q.skipWhen.equals}"` : "";
+  if(q.hidden){
+    return `<input type="hidden" id="${q.id}" name="${q.id}" value="${q.default || ""}">`;
+  }
+  if(q.type === "text"){
+    return `<div class="field"${skipAttr}><label class="qlabel" for="${q.id}">${q.label}${reqMark}</label>
+      <input type="text" id="${q.id}" name="${q.id}" ${q.default?`value="${q.default}"`:""} ${q.required?"required":""}></div>`;
+  }
+  if(q.type === "date"){
+    return `<div class="field"${skipAttr}><label class="qlabel" for="${q.id}">${q.label}${reqMark}</label>
+      <input type="date" id="${q.id}" name="${q.id}" ${q.required?"required":""}></div>`;
+  }
+  if(q.type === "geo"){
+    return `<div class="field"${skipAttr}><label class="qlabel" for="${q.id}">${q.label}${reqMark}</label>
+      <select id="${q.id}" name="${q.id}" ${q.required?"required":""}></select></div>`;
+  }
+  if(q.type === "radio"){
+    const opts = q.options.map((o,i)=>`<label class="opt"><input type="radio" name="${q.id}" value="${o}" ${q.required?"required":""}>${o}</label>`).join("");
+    return `<div class="field"${skipAttr}><div class="qlabel">${q.label}${reqMark}</div><div class="opts">${opts}</div></div>`;
+  }
+  if(q.type === "checkbox"){
+    const opts = q.options.map(o=>`<label class="opt"><input type="checkbox" name="${q.id}" value="${o}">${o}</label>`).join("");
+    const other = q.other ? `<input type="text" class="other-input" name="${q.id}_other" placeholder="অন্যান্য (উল্লেখ করুন)">` : "";
+    return `<div class="field"${skipAttr}><div class="qlabel">${q.label}${reqMark}</div><div class="opts">${opts}</div>${other}</div>`;
+  }
+  return "";
+}
+
+// Skip logic: hide + un-require a field while its trigger question is answered
+// with the given "skip" value; restore it (and its required-ness) otherwise.
+function applySkipLogic(){
+  form.querySelectorAll("[data-skip-id]").forEach(field=>{
+    const triggerName = field.dataset.skipId;
+    const skipValue = field.dataset.skipValue;
+    const chosen = form.querySelector(`input[name="${triggerName}"]:checked`);
+    const shouldSkip = chosen && chosen.value === skipValue;
+    field.style.display = shouldSkip ? "none" : "";
+    field.querySelectorAll("input").forEach(inp=>{
+      if(shouldSkip){
+        if(inp.hasAttribute("required")){ inp.dataset.wasRequired = "1"; inp.removeAttribute("required"); }
+        if(inp.type === "radio" || inp.type === "checkbox") inp.checked = false;
+        else inp.value = "";
+      } else if(inp.dataset.wasRequired){
+        inp.setAttribute("required","");
+      }
+    });
+  });
+}
+
+SURVEY_SCHEMA.forEach(section=>{
+  if(section.title !== "জরিপ তথ্য" && section.title !== "সম্মতি"){
+    const head = document.createElement("div");
+    head.className = "section-head";
+    head.innerHTML = `<div class="letter">${section.letter}</div><h2>${section.title}</h2>`;
+    form.appendChild(head);
+  }
+  const card = document.createElement("div");
+  card.className = "card" + (section.title === "সম্মতি" ? " consent-card" : "");
+  card.innerHTML = section.questions.map(fieldHTML).join("");
+  form.appendChild(card);
+});
+
+const submitBtn = document.createElement("button");
+submitBtn.type = "submit";
+submitBtn.id = "submit-btn";
+submitBtn.textContent = "জরিপ জমা দিন";
+form.appendChild(submitBtn);
+
+applySkipLogic();
+form.addEventListener("change", applySkipLogic);
+
+// Cascading বিভাগ → জেলা → উপজেলা dropdowns, driven by BD_GEO (bd-geo.js).
+(function initGeo(){
+  const div = form.querySelector('[name="q5_division"]');
+  const dis = form.querySelector('[name="q5_district"]');
+  const upa = form.querySelector('[name="q5_upazila"]');
+  if(!div || !dis || !upa) return;
+  function fill(sel, items, placeholder){
+    sel.innerHTML = `<option value="">${placeholder}</option>` + items.map(v=>`<option value="${v}">${v}</option>`).join("");
+    sel.disabled = items.length === 0;
+  }
+  fill(div, Object.keys(BD_GEO), "বিভাগ নির্বাচন করুন");
+  fill(dis, [], "আগে বিভাগ নির্বাচন করুন");
+  fill(upa, [], "আগে জেলা নির্বাচন করুন");
+  div.addEventListener("change", ()=>{
+    fill(dis, div.value ? Object.keys(BD_GEO[div.value]) : [], div.value ? "জেলা নির্বাচন করুন" : "আগে বিভাগ নির্বাচন করুন");
+    fill(upa, [], "আগে জেলা নির্বাচন করুন");
+  });
+  dis.addEventListener("change", ()=>{
+    fill(upa, dis.value ? BD_GEO[div.value][dis.value] : [], dis.value ? "উপজেলা নির্বাচন করুন" : "আগে জেলা নির্বাচন করুন");
+  });
+})();
+
+form.addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  statusBox.className = ""; statusBox.style.display = "none";
+
+  const consent = form.querySelector('input[name="consent"]:checked');
+  if(!consent || consent.value !== "হ্যাঁ"){
+    statusBox.className = "err";
+    statusBox.textContent = "দুঃখিত, সম্মতি ছাড়া জরিপ জমা দেওয়া যাবে না। অনুগ্রহ করে সম্মতি প্রশ্নে 'হ্যাঁ' নির্বাচন করুন।";
+    statusBox.scrollIntoView({behavior:"smooth", block:"center"});
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = "জমা হচ্ছে...";
+
+  const data = { submitted_at: new Date().toISOString() };
+  SURVEY_SCHEMA.forEach(section=>section.questions.forEach(q=>{
+    if(q.type === "checkbox"){
+      data[q.id] = Array.from(form.querySelectorAll(`input[name="${q.id}"]:checked`)).map(el=>el.value);
+      if(q.other) data[q.id + "_other"] = form.querySelector(`[name="${q.id}_other"]`).value.trim();
+    } else if(q.type === "radio"){
+      const sel = form.querySelector(`input[name="${q.id}"]:checked`);
+      data[q.id] = sel ? sel.value : "";
+    } else {
+      data[q.id] = form.querySelector(`[name="${q.id}"]`).value.trim();
+    }
+  }));
+
+  // One filled-out form can represent up to 3 people (self + father + mother),
+  // since their farming/awareness answers are treated as shared for the household.
+  // We clone the same answers into up to 3 rows, swapping in just the name/age
+  // and a "relation" tag, so admin sees them as separate respondents without
+  // the surveyor re-typing the whole form 3 times.
+  const groupId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  const records = [];
+  records.push({ ...data, relation: "নিজে", submission_group_id: groupId });
+  if (data.father_name) {
+    records.push({ ...data, q1_name: data.father_name, q2_age: data.father_age, q3_gender: "পুরুষ", relation: "পিতা", submission_group_id: groupId });
+  }
+  if (data.mother_name) {
+    records.push({ ...data, q1_name: data.mother_name, q2_age: data.mother_age, q3_gender: "মহিলা", relation: "মাতা", submission_group_id: groupId });
+  }
+
+  try{
+    const timeout = new Promise((_, reject)=>setTimeout(()=>reject(new Error("সংযোগে সময় বেশি লাগছে। ইন্টারনেট সংযোগ, অ্যাড-ব্লকার, অথবা Realtime Database/রুলস চেক করুন।")), 15000));
+    await Promise.race([Promise.all(records.map(r => db.ref("survey_responses").push(r))), timeout]);
+    statusBox.className = "ok";
+    statusBox.textContent = records.length > 1
+      ? `ধন্যবাদ! আপনার জরিপ সফলভাবে জমা হয়েছে (মোট ${records.length} জনের জন্য — নিজে${data.father_name ? " + পিতা" : ""}${data.mother_name ? " + মাতা" : ""})।`
+      : "ধন্যবাদ! আপনার জরিপ সফলভাবে জমা হয়েছে।";
+    form.reset();
+    form.querySelector('[name="q5_division"]').dispatchEvent(new Event("change"));
+    submitBtn.textContent = "জরিপ জমা দিন";
+  }catch(err){
+    statusBox.className = "err";
+    statusBox.textContent = "দুঃখিত, জমা দিতে সমস্যা হয়েছে। আবার চেষ্টা করুন। (" + err.message + ")";
+    submitBtn.textContent = "জরিপ জমা দিন";
+  }
+  submitBtn.disabled = false;
+  statusBox.scrollIntoView({behavior:"smooth", block:"center"});
+});
+</script>
+</body>
+</html>

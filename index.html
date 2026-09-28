@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>অ্যাডমিন — কৃষক জরিপ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF1E2; --ink:#22331F; --paddy:#28472A; --gold:#B4831A;
+    --gold-soft:#EADFC1; --brick:#9C3B2A; --line:#D9D4BE; --card:#FBFAF4;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Hind Siliguri',sans-serif;}
+  header{background:var(--paddy);color:#F3EFDD;padding:1.3rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;}
+  header h1{font-family:'Tiro Bangla',serif;font-weight:400;font-size:1.3rem;margin:0;}
+  #signout{background:none;border:1px solid #D8CE9E;color:#D8CE9E;padding:.4rem .9rem;border-radius:3px;cursor:pointer;font:inherit;display:none;}
+
+  #login-screen{max-width:360px;margin:5rem auto;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:2rem;}
+  #login-screen h2{font-family:'Tiro Bangla',serif;font-weight:400;color:var(--paddy);margin-top:0;}
+  #login-screen input{width:100%;padding:.6rem .7rem;border:1px solid var(--line);border-radius:3px;margin-bottom:.8rem;font:inherit;}
+  #login-screen button{width:100%;padding:.7rem;background:var(--paddy);color:#F3EFDD;border:none;border-radius:3px;font:inherit;font-weight:600;cursor:pointer;}
+  #login-error{color:var(--brick);font-size:.9rem;margin-top:.6rem;min-height:1.2em;}
+
+  main{max-width:100%;margin:0 auto;padding:1.5rem;display:none;}
+  .stats{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.4rem;}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1rem 1.3rem;min-width:150px;}
+  .stat .num{font-family:'Tiro Bangla',serif;font-size:1.7rem;color:var(--paddy);}
+  .stat .lbl{font-size:.85rem;color:#6b6b5a;}
+  .toolbar{display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:1.2rem;}
+  .toolbar button{padding:.6rem 1.1rem;border-radius:3px;border:1px solid var(--gold);background:var(--gold-soft);
+    color:var(--paddy);font:inherit;font-weight:600;cursor:pointer;}
+  .toolbar button.refresh{background:#fff;border-color:var(--line);color:var(--ink);}
+  .table-wrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:4px;}
+  table{border-collapse:collapse;width:100%;font-size:.85rem;white-space:nowrap;}
+  th,td{padding:.5rem .7rem;border-bottom:1px solid var(--line);text-align:left;}
+  th{background:var(--paddy);color:#F3EFDD;position:sticky;top:0;}
+  tr:nth-child(even){background:#F4F2E8;}
+  #empty-msg,#loading-msg{padding:2rem;text-align:center;color:#6b6b5a;}
+</style>
+</head>
+<body>
+<header>
+  <h1>অ্যাডমিন ড্যাশবোর্ড — কৃষক জরিপ</h1>
+  <button id="signout">লগ আউট</button>
+</header>
+
+<div id="login-screen">
+  <h2>অ্যাডমিন লগইন</h2>
+  <input type="text" id="email" placeholder="ইউজারনেম" autocomplete="username">
+  <input type="password" id="password" placeholder="পাসওয়ার্ড" autocomplete="current-password">
+  <button id="login-btn">লগইন করুন</button>
+  <div id="login-error"></div>
+</div>
+
+<main id="dashboard">
+  <div class="stats">
+    <div class="stat"><div class="num" id="stat-total">0</div><div class="lbl">মোট জমা</div></div>
+    <div class="stat"><div class="num" id="stat-android">0</div><div class="lbl">অ্যান্ড্রয়েড ব্যবহারকারী</div></div>
+    <div class="stat"><div class="num" id="stat-wants-app">0</div><div class="lbl">অ্যাপ ব্যবহার করতে চান</div></div>
+  </div>
+  <div class="toolbar">
+    <button class="refresh" id="refresh-btn">রিফ্রেশ করুন</button>
+    <button id="csv-btn">CSV ডাউনলোড</button>
+    <button id="xlsx-btn">Excel (.xlsx) ডাউনলোড</button>
+  </div>
+  <div id="loading-msg">লোড হচ্ছে...</div>
+  <div id="empty-msg" style="display:none;">এখনো কোনো জরিপ জমা পড়েনি।</div>
+  <div class="table-wrap" style="display:none;" id="table-wrap">
+    <table id="data-table"><thead></thead><tbody></tbody></table>
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="firebase-config.js"></script>
+<script src="schema.js"></script>
+<script>
+const fields = flatFields();
+let rows = [];
+
+// Plain hardcoded username/password check — no Firebase Authentication involved.
+const ADMIN_USERNAME = "utsho";
+const ADMIN_PASSWORD = "utsho1512827213";
+
+document.getElementById("login-btn").addEventListener("click", ()=>{
+  const username = document.getElementById("email").value.trim();
+  const pass = document.getElementById("password").value;
+  const errBox = document.getElementById("login-error");
+  errBox.textContent = "";
+  if(username === ADMIN_USERNAME && pass === ADMIN_PASSWORD){
+    sessionStorage.setItem("admin_logged_in", "1");
+    showDashboard();
+  } else {
+    errBox.textContent = "ভুল ইউজারনেম বা পাসওয়ার্ড।";
+  }
+});
+document.getElementById("signout").addEventListener("click", ()=>{
+  sessionStorage.removeItem("admin_logged_in");
+  showDashboard();
+});
+
+function showDashboard(){
+  const loggedIn = sessionStorage.getItem("admin_logged_in") === "1";
+  document.getElementById("login-screen").style.display = loggedIn ? "none" : "block";
+  document.getElementById("dashboard").style.display = loggedIn ? "block" : "none";
+  document.getElementById("signout").style.display = loggedIn ? "inline-block" : "none";
+  if(loggedIn) loadData();
+}
+showDashboard();
+
+// --- Data ---
+async function loadData(){
+  document.getElementById("loading-msg").style.display = "block";
+  document.getElementById("table-wrap").style.display = "none";
+  document.getElementById("empty-msg").style.display = "none";
+  try{
+    const snap = await db.ref("survey_responses").orderByChild("submitted_at").once("value");
+    rows = [];
+    snap.forEach(child=>{ rows.push(child.val()); });
+    rows.reverse(); // newest first
+    renderStats();
+    renderTable();
+  }catch(err){
+    document.getElementById("loading-msg").textContent = "ডেটা লোড করতে সমস্যা হয়েছে: " + err.message;
+    return;
+  }
+  document.getElementById("loading-msg").style.display = "none";
+}
+document.getElementById("refresh-btn").addEventListener("click", loadData);
+
+function renderStats(){
+  document.getElementById("stat-total").textContent = rows.length;
+  document.getElementById("stat-android").textContent = rows.filter(r=>r.q18_phone_type === "অ্যান্ড্রয়েড স্মার্টফোন").length;
+  document.getElementById("stat-wants-app").textContent = rows.filter(r=>r.q45_would_use_app === "অবশ্যই চান" || r.q45_would_use_app === "চান").length;
+}
+
+function renderTable(){
+  if(rows.length === 0){
+    document.getElementById("empty-msg").style.display = "block";
+    return;
+  }
+  const thead = document.querySelector("#data-table thead");
+  const tbody = document.querySelector("#data-table tbody");
+  thead.innerHTML = "<tr>" + fields.map(f=>`<th>${f.label}</th>`).join("") + "</tr>";
+  tbody.innerHTML = rows.map(r=>{
+    return "<tr>" + fields.map(f=>{
+      let v = r[f.id];
+      if(Array.isArray(v)) v = v.join(", ");
+      return `<td>${v ?? ""}</td>`;
+    }).join("") + "</tr>";
+  }).join("");
+  document.getElementById("table-wrap").style.display = "block";
+}
+
+// --- Export ---
+function toAOA(){
+  const header = fields.map(f=>f.label);
+  const body = rows.map(r=>fields.map(f=>{
+    let v = r[f.id];
+    if(Array.isArray(v)) v = v.join(", ");
+    return v ?? "";
+  }));
+  return [header, ...body];
+}
+
+document.getElementById("csv-btn").addEventListener("click", ()=>{
+  const aoa = toAOA();
+  const csv = aoa.map(row=>row.map(cell=>{
+    const s = String(cell).replace(/"/g,'""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  }).join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], {type:"text/csv;charset=utf-8;"});
+  downloadBlob(blob, "farmer_survey_responses.csv");
+});
+
+document.getElementById("xlsx-btn").addEventListener("click", ()=>{
+  const ws = XLSX.utils.aoa_to_sheet(toAOA());
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Responses");
+  XLSX.writeFile(wb, "farmer_survey_responses.xlsx");
+});
+
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
